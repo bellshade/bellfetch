@@ -1,0 +1,4 @@
+root = true
+
+[bellfetch]
+indent_style = tab

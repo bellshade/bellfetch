@@ -1,0 +1,9 @@
+name: check shell
+on: [push, pull_request]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: test shell checking
+        run: shellcheck bellfetch
