@@ -2,10 +2,9 @@
 
 
 log() {
-    
     [ "$2" ] || return
-
-    
+    name=$1
+    # shellcheck disable=2046,2086
     {
         set -f
         set +f -- $2
@@ -13,32 +12,22 @@ log() {
     }
 
     printf '[%sC' "${ascii_width--1}"
-
     printf '[3%s;1m%s[m' "${PF_COL1-4}" "$name"
-
     printf '%s' "$PF_SEP"
-
     printf '[%sD[%sC' "${#name}" "${PF_ALIGN-$info_length}"
-
-
     printf '[3%sm%s[m\n' "${PF_COL2-7}" "$info"
-
-    
     : $((info_height+=1))
 }
 
 get_title() {
-    
     user=${USER:-$(whoami)}
-
-    
+    # shellcheck disable=SC2039
     hostname=${HOSTNAME:-${hostname:-$(hostname)}}
 
     log "[3${PF_COL3:-1}m${user}${c7}@[3${PF_COL3:-1}m${hostname}" " " >&6
 }
 
 get_os() {
-    
     [ "$distro" ] && {
         log os "$distro" >&6
         return
@@ -46,31 +35,28 @@ get_os() {
 
     case $os in
         Linux*)
-            
             if command -v lsb_release; then
                 distro=$(lsb_release -sd)
-
                 distro=${distro##\"}
                 distro=${distro%%\"}
 
             else
-                
+                # shellcheck source=/dev/null
                 . /etc/os-release && distro=$PRETTY_NAME
             fi
 
-            
             command -v crux        && distro=$(crux)
             command -v guix        && distro='Guix System'
 
-            
             [ "${kernel%%*-Microsoft}" ] ||
                 distro="$distro on Windows 10"
         ;;
 
         Darwin*)
-            
             while IFS='<>' read -r _ _ line _; do
                 case $line in
+                    # Match 'ProductVersion' and read the next line
+                    # directly as it contains the key's value.
                     ProductVersion)
                         IFS='<>' read -r _ _ mac_version _
                         break
@@ -78,7 +64,6 @@ get_os() {
                 esac
             done < /System/Library/CoreServices/SystemVersion.plist
 
-            
             case $mac_version in
                 10.4*)  distro='Mac OS X Tiger' ;;
                 10.5*)  distro='Mac OS X Leopard' ;;
@@ -99,12 +84,10 @@ get_os() {
         ;;
 
         Haiku)
-            
             distro="Haiku $(uname -v)"
         ;;
 
         *)
-            
             distro="$os $kernel"
         ;;
     esac
@@ -112,11 +95,9 @@ get_os() {
 
 get_kernel() {
     case $os in
-        
         *BSD*|Haiku) ;;
 
         *)
-            
             log kernel "$kernel" >&6
         ;;
    esac
@@ -129,7 +110,6 @@ get_shell() {
 get_host() {
     case $os in
         Linux*)
-            
             read -r name    < /sys/devices/virtual/dmi/id/product_name
             read -r version < /sys/devices/virtual/dmi/id/product_version
             read -r model   < /sys/firmware/devicetree/base/model
@@ -151,16 +131,14 @@ get_host() {
         ;;
     esac
 
-    
+    # shellcheck disable=2046,2086
     {
         set -f
         set +f -- $host
         host=
     }
 
-    
     for word; do
-        
         case $word in
             To      | [Bb]e      | [Ff]illed | by     | O.E.M.  | OEM  |\
             Not     | Applicable | Specified | System | Product | Name |\
@@ -172,12 +150,10 @@ get_host() {
         host="$host$word "
     done
 
-    
     log host "${host:-$arch}" >&6
 }
 
 get_uptime() {
-    
     case $os in
         Linux*)
             IFS=. read -r s _ < /proc/uptime
@@ -186,20 +162,16 @@ get_uptime() {
         Darwin*|*BSD*)
             s=$(sysctl -n kern.boottime)
 
-            
             s=${s#*=}
             s=${s%,*}
 
-            
             s=$(($(date +%s) - s))
         ;;
 
         Haiku)
-            
             s=$(($(system_time) / 1000000))
         ;;
     esac
-
 
     d=$((s / 60 / 60 / 24))
     h=$((s / 60 / 60 % 24))
@@ -213,12 +185,12 @@ get_uptime() {
 }
 
 get_pkgs() {
-    
     has() { command -v "$1" >/dev/null; }
+
+    # shellcheck disable=2006
     packages=`
         case $os in
             Linux*)
-                
                 has kiss       && kiss l
                 has bonsai     && bonsai list
                 has pacman-key && pacman -Qq
@@ -235,17 +207,14 @@ get_pkgs() {
                     guix package -p /run/current-system/profile -I
                     guix package -I
                 }
-                
                 has nix-store  && {
                     nix-store -q --requisites /run/current-system/sw
                     nix-store -q --requisites ~.nix-profile
                 }
             ;;
             Darwin*)
-                
                 has pkgin      && pkgin list
                 has port       && port installed
-                
                 has brew       && printf '%s\n' /usr/local/Cellar/*
             ;;
             FreeBSD*)
@@ -268,9 +237,7 @@ get_pkgs() {
 
 get_memory() {
     case $os in
-        
         Linux*)
-            
             while IFS=:k read -r key val _; do
                 case $key in
                     MemTotal)
@@ -292,11 +259,9 @@ get_memory() {
             mem_full=$((mem_full / 1024))
         ;;
 
-        
         Darwin*)
             mem_full=$(($(sysctl -n hw.memsize) / 1024 / 1024))
 
-            
             while IFS=:. read -r key val; do
                 case $key in
                     *wired*|*active*|*occupied*)
@@ -304,7 +269,6 @@ get_memory() {
                     ;;
                 esac
 
-            
             done <<-EOF
                 $(vm_stat)
 			EOF
@@ -314,12 +278,9 @@ get_memory() {
 
         OpenBSD*)
             mem_full=$(($(sysctl -n hw.physmem) / 1024 / 1024))
-
-            
             while read -r _ _ line _; do
                 mem_used=${line%%M}
 
-            
             done <<-EOF
                 $(vmstat)
 			EOF
@@ -327,7 +288,7 @@ get_memory() {
 
         FreeBSD*)
             mem_full=$(($(sysctl -n hw.physmem) / 1024 / 1024))
-
+            # shellcheck disable=2046
             {
                 set -f
                 set +f -- $(sysctl -n hw.pagesize \
@@ -336,14 +297,15 @@ get_memory() {
                                       vm.stats.vm.v_cache_count)
             }
 
-            
+            # $1: hw.pagesize
+            # $2: vm.stats.vm.v_inactive_count
+            # $3: vm.stats.vm.v_free_count
+            # $4: vm.stats.vm.v_cache_count
             mem_used=$((($2 + $3 + $4) * $1 / 1024 / 1024))
         ;;
 
         NetBSD*)
             mem_full=$(($(sysctl -n hw.physmem64) / 1024 / 1024))
-
-            
             while IFS=:k read -r key val _; do
                 case $key in
                     MemFree)
@@ -357,7 +319,6 @@ get_memory() {
         ;;
 
         Haiku)
-            
             IFS='( )' read -r _ _ _ _ mem_used _ mem_full <<-EOF
                 $(sysinfo -mem)
 			EOF
@@ -371,26 +332,17 @@ get_memory() {
 }
 
 get_palette() {
-    
     palette="  [7m$c1  $c2  $c3  $c4  $c5  $c6  $c7  "
-
-    
     printf '\n[%sC%s[m\n' "${ascii_width-1}" "$palette" >&6
 }
 
 get_ascii() {
     read_ascii() {
-        
-        PF_COL1=${PF_COL1:-${1:-7}}
-        PF_COL3=${PF_COL3:-$((${1:-7}%8+1))}
-
         while IFS= read -r line; do
             ascii="$ascii$line
 "
         done
     }
-
-    
     case ${1:-${PF_ASCII:-${distro:-$os}}} in
         [Aa]lpine*)
             read_ascii 4 <<-EOF
@@ -740,7 +692,6 @@ get_ascii() {
         ;;
 
         *)
-            
             [ "$1" ] || {
                 get_ascii "$os"
                 return
@@ -752,69 +703,51 @@ get_ascii() {
         ;;
     esac
 
-    
     while read -r line; do
         : $((ascii_height+=1))
         ascii_width=$((${#line} > ascii_width ? ${#line} : ascii_width))
-
-    
     done <<-EOF
 		$(printf %s "$ascii" | sed 's/\[3.m//g')
 	EOF
 
-    
     : $((ascii_width+=4))
 
-    
     printf '[?7l[?25l[1m%s[m[%sA' "$ascii" "$ascii_height" >&6
 }
 
 main() {
-    
     trap 'printf [?7h[?25h >&6' EXIT
-
-    
     [ "$1" = -v ] || exec 2>/dev/null
-
     exec 6>&1 >/dev/null
 
-    
+    # shellcheck disable=2034
     {
         c1='[31m'; c2='[32m'
         c3='[33m'; c4='[34m'
         c5='[35m'; c6='[36m'
         c7='[37m'; c8='[38m'
     }
-
-    
     read -r os kernel arch <<-EOF
 		$(uname -srm)
 	EOF
 
-    
     get_os
 
-    
+    # shellcheck disable=2086
     {
         set -f
         set +f ${PF_INFO-ascii title os host kernel uptime pkgs memory}
-
-        
         for info; do
             command -v "get_$info" >/dev/null &&
                 info_length=$((${#info} > info_length ? ${#info} : info_length))
         done
-
-        
         : $((info_length+=1))
 
-        
         for info; do "get_$info"; done
     }
 
-
     cursor_pos=$((info_height > ascii_height ? 0 : ascii_height - info_height))
-
+    
     while [ "${i:-0}" -le "$cursor_pos" ]; do
         printf '\n'
         : $((i+=1))

@@ -11,7 +11,7 @@ aplikasi untuk menampilkan informasi arsitektur sistem
 ///        \\\    memory 2508M / 31221M
 ```
 
-## os support
+## OS support
 
 - [x] Linux
 - [x] MacOS
@@ -19,3 +19,13 @@ aplikasi untuk menampilkan informasi arsitektur sistem
 - [x] FreeBSD
 - [x] NetBSD
 - [x] Haiku
+
+## Installasi
+
+Clone repositori dengan cara
+
+```
+git clone https://github.com/bellshade/bellfetch
+cd bellfetch
+sudo cp bellfetch /usr/bin
+```
