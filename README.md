@@ -4,7 +4,10 @@
 [![wpu](https://img.shields.io/discord/722002048643497994?color=blue&label=discord&logo=discord&logoColor=white&style=for-the-badge)](http://discord.gg/S4rrXQU)
 [![sponsor](https://img.shields.io/badge/sponsor-30363D?style=for-the-badge&logo=GitHub-Sponsors&logoColor=#white)](https://saweria.co/bellshade)
 
-aplikasi untuk menampilkan informasi arsitektur sistem. dibuat dengan menggunakan POSIX ``sh``
+aplikasi untuk menampilkan informasi arsitektur sistem. dibuat dengan menggunakan POSIX ``sh``.
+
+Kode sumber sangat didokumentasikan dan berharap ini akan bertindak sebagai sumber belajar untuk POSIX sh dan deteksi informasi sederhana di berbagai sistem operasi yang berbeda.
+
 ```
 ➜ bellfetch
       /\          slowy07@slowy06
@@ -19,6 +22,28 @@ aplikasi untuk menampilkan informasi arsitektur sistem. dibuat dengan menggunaka
 ## OS support
 
 - [x] Linux
+  - [x] arch
+  - [x] alpine
+  - [x] artix
+  - [x] centOS
+  - [x] elementary
+  - [x] fedora
+  - [x] gentoo
+  - [x] guix
+  - [x] hyperbola
+  - [x] kiss linux
+  - [x] linux lite
+  - [x] linux mint
+  - [x] magela
+  - [x] manajaro
+  - [x] mx linux
+  - [x] nix
+  - [x] openSUSE
+  - [x] parabola
+  - [x] pop os
+  - [x] slackware
+  - [x] ubuntu
+  - [x] void linux
 - [x] MacOS
 - [x] OpenBSD
 - [x] FreeBSD

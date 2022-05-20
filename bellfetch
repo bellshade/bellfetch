@@ -2,8 +2,59 @@
 
 
 log() {
+    # Fungsi 'log()' menangani pencetakan informasi.
+    # Dalam 'pfetch' (dan 'neofetch'!) pencetakan ascii art dan info
+    # terjadi secara independen satu sama lain.
+    #
+    # Ukuran ascii art disimpan dan ascii dicetak terlebih dahulu.
+    # Setelah ascii dicetak, kursor terletak tepat di bawah seni
+    # (Lihat penanda $[1]).
+    #
+    # Menggunakan ukuran ascii yang disimpan, kursor kemudian dipindahkan ke penanda $[2].
+    # Ini hanyalah urutan pelarian kursor ke atas menggunakan "tinggi" dari
+    # seni asci.
+    #
+    # 'log()' lalu gerakkan kursor ke kanan "lebar" seni ascii
+    # dengan jumlah bantalan tambahan untuk menambah jarak antara seni dan
+    # informasi (Lihat penanda $[3]).
+    #
+    # Ketika 'log()' telah dieksekusi, kursor kemudian ditempatkan di penanda $[4].
+    # Ketika 'log()' dijalankan untuk kedua kalinya, baris informasi berikutnya adalah
+    # dicetak, memindahkan kursor ke penanda $[5].
+    #
+    # Penanda $[4] dan $[5] ulangi sampai ke bawah melalui seni ascii
+    # sampai tidak ada lagi informasi yang tersisa untuk dicetak.
+    #
+    # Setiap kali 'log()' dipanggil, skrip melacak berapa banyak baris
+    # telah dicetak. Saat pencetakan selesai, kursor kemudian secara manual
+    # ditempatkan di bawah informasi dan seni sesuai dengan "ketinggian"
+    # keduanya.
+    #
+    # Perhitungannya sederhana: pindahkan kursor ke bawah $((ascii_height - info_height)).
+    # Jika tujuannya adalah untuk memindahkan kursor dari penanda $[5] ke penanda $[6],
+    # ditambah tinggi ascii adalah 8 sedangkan tinggi info adalah 2 itu akan menjadi langkah
+    # dari 6 baris ke bawah.
+    #
+    # Namun, jika informasi yang dicetak "lebih tinggi" (memakan lebih banyak baris)
+    # daripada seni ascii, kursor tidak dipindahkan sama sekali!
+    #
+    # Setelah kursor berada di penanda $[6], skrip keluar. Ini adalah intinya
+    # cara kerja pencetakan dan tata letak "dinamis" ini.
+    #
+    # Metode ini memungkinkan seni ascii disimpan tanpa penanda untuk info
+    # dan memungkinkan pertukaran info pesanan dan jumlah dengan mudah.
+    # Akhiri di sini jika tidak ada data yang ditemukan.
     [ "$2" ] || return
+
+    # Simpan nilai '$1' saat kita mereset daftar argumen di bawah ini.
     name=$1
+
+    # Gunakan 'set --' sebagai cara untuk menghilangkan semua awalan dan akhiran
+    # spasi putih dari string info. Ini juga menormalkan semua
+    # spasi putih di dalam string.
+    #
+    # Nonaktifkan peringatan shellcheck untuk pemisahan kata
+    # karena aman dan dimaksudkan ('set -f' menonaktifkan globbing).
     # shellcheck disable=2046,2086
     {
         set -f
@@ -11,16 +62,40 @@ log() {
         info=$*
     }
 
+    # Pindahkan kursor ke kanan, lebar seni ascii dengan
+    # celah tambahan untuk spasi teks.
     printf '[%sC' "${ascii_width--1}"
+
+    # Cetak nama info dan warnai teksnya.
     printf '[3%s;1m%s[m' "${PF_COL1-4}" "$name"
+
+    # Cetak nama info dan pemisah data info.
     printf '%s' "$PF_SEP"
+
+    # Gerakkan kursor ke belakang sepanjang nama info *saat ini* dan
+    # lalu pindahkan ke depan panjang nama info *terpanjang*. Ini
+    # menyelaraskan setiap baris data info.
     printf '[%sD[%sC' "${#name}" "${PF_ALIGN-$info_length}"
+
+    # Cetak data info, warnai, dan hapus semua spasi putih terkemuka
+    # dari string.
     printf '[3%sm%s[m\n' "${PF_COL2-7}" "$info"
-    : $((info_height+=1))
+
+    # Catat berapa kali 'log()' telah dijalankan.
+    info_height=$((${info_height:-0} + 1))
 }
 
 get_title() {
-    user=${USER:-$(whoami)}
+    # Nama pengguna diambil dengan terlebih dahulu mencentang '$USER' dengan fallback
+    # ke perintah 'id -un'.
+    pengguna=${USER:-$(id -un)}
+
+    # Hostname diambil dengan terlebih dahulu mencentang '$HOSTNAME' dengan fallback
+    # ke perintah 'nama host'.
+    #
+    # Nonaktifkan peringatan tentang '$HOSTNAME' tidak terdefinisi di POSIX sh as
+    # niat untuk menggunakannya adalah memungkinkan pengguna untuk menimpa
+    # nilai pada pemanggilan.
     # shellcheck disable=SC2039
     hostname=${HOSTNAME:-${hostname:-$(hostname)}}
 
@@ -28,6 +103,12 @@ get_title() {
 }
 
 get_os() {
+    # Fungsi ini dipanggil dua kali, sekali untuk mendeteksi nama distribusi
+    # untuk tujuan memilih seni ascii lebih awal dan kedua untuk ditampilkan
+    # nama distribusi di output info (jika diaktifkan).
+    #
+    # Saat pertama kali dijalankan, fungsi ini menampilkan _tidak ada_, hanya pada yang kedua
+    # pemanggilan 'log()' dipanggil.
     [ "$distro" ] && {
         log os "$distro" >&6
         return
@@ -35,24 +116,80 @@ get_os() {
 
     case $os in
         Linux*)
+            # Beberapa distribusi Linux (yang didasarkan pada yang lain)
+            # gagal mengidentifikasi karena mereka **tidak** mengubah hulu
+            # paket atau file identifikasi distribusi.
+            #
+            # Tidak masuk akal untuk menambahkan kasus khusus dalam kode untuk
+            # setiap distribusi (yang secara teknis _is_ tidak ada
+            # berbeda dari apa yang menjadi dasarnya) karena keduanya juga
+            # malas memodifikasi file identifikasi upstream atau mereka
+            # tidak memiliki pengetahuan (atau sarana) untuk mengirim sendiri
+            # paket rilis lsb.
+            #
+            # Ini menyebabkan pengguna berpikir ada bug dalam deteksi sistem
+            # alat seperti neofetch atau pfetch ketika secara teknis *melakukan*
+            # berfungsi dengan benar.
+            #
+            # Pengecualian dibuat untuk distribusi yang independen,
+            # tidak berdasarkan distribusi lain atau mengikuti yang berbeda
+            # standar.
+            #
+            # Ini hanya berlaku untuk distribusi yang mengikuti standar
+            # dengan mengirimkan file dan paket identifikasi yang tidak dimodifikasi
+            # dari hulunya masing-masing.
             if command -v lsb_release; then
                 distro=$(lsb_release -sd)
-                distro=${distro##\"}
-                distro=${distro%%\"}
 
             else
-                # shellcheck source=/dev/null
-                . /etc/os-release && distro=$PRETTY_NAME
+                # Ini digunakan untuk menjadi sederhana '. /etc/os-release' tapi saya percaya
+                # ini tidak aman karena kami secara membabi buta mengeksekusi apa pun yang ada di
+                # berkas. Parser ini hanya menangani 'key=val', memperlakukan
+                # isi file sebagai teks biasa.
+                while IFS='=' read -r key val; do
+                    case $key in
+                        PRETTY_NAME) distro=$val ;;
+                    esac
+                done < /etc/os-release
             fi
 
-            command -v crux        && distro=$(crux)
-            command -v guix        && distro='Guix System'
+            # 'os-release' dan 'lsb_release' terkadang menambahkan tanda kutip
+            # di sekitar nama distribusi, hapus.
+            distro=${distro##[\"\']}
+            distro=${distro%%[\"\']}
 
+            # Kasus khusus untuk distribusi (independen) yang
+            # jangan ikuti standar os-release/lsb apa pun.
+            command -v crux && distro=$(crux)
+            command -v guix && distro='Guix System'
+
+            # Periksa untuk melihat apakah Linux berjalan di Windows 10 di bawah
+            # WSL (Subsistem Windows untuk Linux) dan tambahkan string
+            # sesuai.
+            #
+            # Jika string versi kernel diakhiri dengan "-Microsoft",
+            # kami sangat mungkin berjalan di bawah Windows 10 di WSL.
+            #
+            # Ini juga berfungsi sebagai sarana yang memungkinkan pengguna untuk
+            # memalsukan ini dengan mengubah versi kernel mereka menjadi berakhir
+            # "Microsoft".
             [ "${kernel%%*-Microsoft}" ] ||
                 distro="$distro on Windows 10"
         ;;
 
         Darwin*)
+            # Mengurai file SystemVersion.plist untuk mengambil macOS
+            # Versi: kapan. File dalam format berikut:
+            #
+            # <key>Versi Produk</key>
+            # <string>10.14.6</string>
+            #
+            # 'IFS' disetel ke '<>' untuk mengaktifkan pemisahan antara
+            # tombol dan 'baca' kedua digunakan untuk mengoperasikan
+            # baris berikutnya langsung setelah pertandingan.
+            #
+            # '_' digunakan untuk meniadakan bidang. '_ _ baris _' pada dasarnya
+            # mengatakan "isi $line dengan konten ketiga".
             while IFS='<>' read -r _ _ line _; do
                 case $line in
                     # Match 'ProductVersion' and read the next line
@@ -64,6 +201,9 @@ get_os() {
                 esac
             done < /System/Library/CoreServices/SystemVersion.plist
 
+            # Gunakan ProductVersion untuk menentukan nama kode macOS/OS X mana
+            # sistem memiliki. Sejauh yang saya ketahui tidak ada cara "dinamis"
+            # mengambil informasi ini.
             case $mac_version in
                 10.4*)  distro='Mac OS X Tiger' ;;
                 10.5*)  distro='Mac OS X Leopard' ;;
@@ -84,10 +224,28 @@ get_os() {
         ;;
 
         Haiku)
-            distro="Haiku $(uname -v)"
+            # Haiku menggunakan 'uname -v' untuk informasi versi
+            # alih-alih 'uname -r' yang hanya mencetak '1'.
+            distro=$(uname -sv)
+        ;;
+
+        Minix|DragonFly)
+            distro="$os $kernel"
+
+            # Minix dan DragonFly tidak mendukung escape
+            # urutan yang digunakan, bersihkan jebakan keluar.
+            trap '' EXIT
+        ;;
+
+        SunOS)
+            # Ambil baris pertama dari file '/etc/release'
+            # membuang semuanya setelah '('.
+            IFS='(' read -r distro _ < /etc/release
         ;;
 
         *)
+            # Tangkap semua untuk memastikan '$distro' tidak pernah kosong.
+            # Ini juga menangani BSD.
             distro="$os $kernel"
         ;;
     esac
@@ -95,9 +253,12 @@ get_os() {
 
 get_kernel() {
     case $os in
-        *BSD*|Haiku) ;;
+        # Jangan mencetak keluaran kernel pada beberapa sistem sebagai
+        # Nama OS menyertakannya.
+        *BSD*|Haiku|Minix) ;;
 
         *)
+            # '$kernel' adalah hasil cache dari 'uname -r'.
             log kernel "$kernel" >&6
         ;;
    esac
@@ -110,6 +271,9 @@ get_shell() {
 get_host() {
     case $os in
         Linux*)
+            # Terlepas dari apa nama file-file ini, versi tidak
+            # selalu berisi versi dan nama juga tidak selalu berisi
+            # nama.
             read -r name    < /sys/devices/virtual/dmi/id/product_name
             read -r version < /sys/devices/virtual/dmi/id/product_version
             read -r model   < /sys/firmware/devicetree/base/model
@@ -117,7 +281,7 @@ get_host() {
             host="$name $version $model"
         ;;
 
-        Darwin*|FreeBSD*)
+        Darwin*|FreeBSD*|DragonFly*)
             host=$(sysctl -n hw.model)
         ;;
 
@@ -131,6 +295,12 @@ get_host() {
         ;;
     esac
 
+    # Ubah string Host menjadi daftar argumen sehingga kami dapat mengulanginya
+    # di atasnya dan hapus string OEM dan informasi lain yang
+    # tidak boleh ditampilkan.
+    #
+    # Nonaktifkan peringatan shellcheck untuk pemisahan kata
+    # karena aman dan dimaksudkan ('set -f' menonaktifkan globbing).
     # shellcheck disable=2046,2086
     {
         set -f
@@ -138,7 +308,20 @@ get_host() {
         host=
     }
 
+    # Ulangi string host kata demi kata sebagai sarana pengupasan
+    # informasi yang tidak diinginkan dan OEM dari string secara keseluruhan.
+    #
+    # Ini bisa diimplementasikan menggunakan perintah 'sed' yang panjang dengan
+    # daftar penggantian kata, namun saya ingin menunjukkan sesuatu itu
+    # seperti ini dimungkinkan dalam sh murni.
+    #
+    # Rekonstruksi string ini diperlukan karena beberapa OEM meninggalkan
+    # informasi identifikasi sebagai "Untuk diisi oleh OEM", "Default",
+    # "undefined" dll dan kita tidak boleh mencetak ini ke layar.
     for word; do
+        # Ini bekerja dengan merekonstruksi string dengan mengecualikan kata-kata
+        # ditemukan di "daftar hitam" di bawah ini. Hanya yang tidak cocok yang ditambahkan
+        # ke string host terakhir.
         case $word in
             To      | [Bb]e      | [Ff]illed | by     | O.E.M.  | OEM  |\
             Not     | Applicable | Specified | System | Product | Name |\
@@ -150,33 +333,58 @@ get_host() {
         host="$host$word "
     done
 
+    # '$arch' adalah hasil cache dari 'uname -m'.
     log host "${host:-$arch}" >&6
 }
 
 get_uptime() {
+    # Uptime bekerja dengan mengambil data dalam hitungan detik dan kemudian
+    # mengubah data itu menjadi hari, jam, dan menit menggunakan sederhana
+    # matematika.
     case $os in
-        Linux*)
+        Linux*|Minix*)
             IFS=. read -r s _ < /proc/uptime
         ;;
 
-        Darwin*|*BSD*)
+        Darwin*|*BSD*|DragonFly*)
             s=$(sysctl -n kern.boottime)
 
+            # Ekstrak waktu aktif dalam hitungan detik dari output berikut:
+            # [...] { sec = 1271934886, usec = 667779 } Thu Apr 22 12:14:46 2010
             s=${s#*=}
             s=${s%,*}
 
+            # Format waktu aktif dari 'sysctl' perlu dikurangi dari
+            # waktu saat ini dalam detik.
             s=$(($(date +%s) - s))
         ;;
 
         Haiku)
+            # Waktu boot dikembalikan dalam mikrodetik, ubah menjadi
+            # detik biasa.
             s=$(($(system_time) / 1000000))
+        ;;
+
+        SunOS)
+            # Pisahkan output 'kstat' pada '.' dan ruang putih apa pun
+            # yang ada di output perintah.
+            #
+            # Outputnya adalah sebagai berikut:
+            # unix:0:system_misc:snaptime	14809.906993005
+            #
+            # The parser extracts:          ^^^^^
+            IFS='	.' read -r _ s _ <<-EOF
+				$(kstat -p unix:0:system_misc:snaptime)
+			EOF
         ;;
     esac
 
+    # Ubah waktu aktif dari detik menjadi hari, jam, dan menit.
     d=$((s / 60 / 60 / 24))
     h=$((s / 60 / 60 % 24))
     m=$((s / 60 % 60))
 
+    # Hanya tambahkan hari, jam, dan menit jika bukan nol.
     [ "$d" = 0 ] || uptime="${uptime}${d}d "
     [ "$h" = 0 ] || uptime="${uptime}${h}h "
     [ "$m" = 0 ] || uptime="${uptime}${m}m "
@@ -185,39 +393,56 @@ get_uptime() {
 }
 
 get_pkgs() {
+    # Ini hanyalah pembungkus sederhana di sekitar 'command -v' yang harus dihindari
+    # spamming '>/dev/null' di seluruh fungsi ini.
     has() { command -v "$1" >/dev/null; }
 
+    # Ini bekerja dengan terlebih dahulu memeriksa manajer paket mana yang
+    # diinstal dan akhirnya dengan mencetak setiap manajer paket
+    # daftar paket dengan setiap paket satu per baris.
+    #
+    # Output dari ini kemudian disalurkan ke 'wc -l' untuk menghitung masing-masing
+    # baris, memberi kami jumlah total paket dari paket apa pun
+    # manajer diinstal.
+    #
+    # Backtick *wajib* di sini karena '/bin/sh' di macOS adalah
+    # 'bash 3.2' dan tidak dapat menangani hal berikut:
+    #
+    #var=$(
+    #kode disini
+    # )
+    #
     # shellcheck disable=2006
     packages=`
         case $os in
             Linux*)
-                has kiss       && kiss l
+                # Perintah yang mencetak paket satu per baris.
                 has bonsai     && bonsai list
                 has pacman-key && pacman -Qq
                 has dpkg       && dpkg-query -f '.\n' -W
                 has rpm        && rpm -qa
                 has xbps-query && xbps-query -l
                 has apk        && apk info
-                
+                has guix       && guix package --list-installed
+                # Direktori yang berisi paket.
+                has kiss       && printf '%s\n' /var/db/kiss/installed/*/
                 has brew       && printf '%s\n' "$(brew --cellar)/"*
                 has emerge     && printf '%s\n' /var/db/pkg/*/*/
                 has pkgtool    && printf '%s\n' /var/log/packages/*
-                
-                has guix       && {
-                    guix package -p /run/current-system/profile -I
-                    guix package -I
-                }
+                # NIX membutuhkan dua perintah.
                 has nix-store  && {
                     nix-store -q --requisites /run/current-system/sw
                     nix-store -q --requisites ~.nix-profile
                 }
             ;;
             Darwin*)
+                # Perintah yang mencetak paket satu per baris.
                 has pkgin      && pkgin list
                 has port       && port installed
+                # Direktori yang berisi paket.
                 has brew       && printf '%s\n' /usr/local/Cellar/*
             ;;
-            FreeBSD*)
+            FreeBSD*|DragonFly*)
                 pkg info
             ;;
             OpenBSD*)
@@ -229,6 +454,13 @@ get_pkgs() {
             Haiku)
                 printf '%s\n' /boot/system/package-links/*
             ;;
+            Minix)
+                printf '%s\n' /usr/pkg/var/db/pkg/*/
+            ;;
+            SunOS)
+                has pkginfo && pkginfo -i
+                has pkg     && pkg list
+            ;;
         esac | wc -l
     `
 
@@ -237,8 +469,13 @@ get_pkgs() {
 
 get_memory() {
     case $os in
+        # Memori yang digunakan dihitung menggunakan "rumus" berikut:
+        # MemUsed = MemTotal + Shmem - MemFree - Buffers - Cached - SReclaimable
         Linux*)
-            while IFS=:k read -r key val _; do
+            # Parsing pemisahan file '/proc/meminfo' pada ':' dan 'k'.
+            # Format file adalah 'kunci: 000kB' dan tambahan
+            # split digunakan pada 'k' untuk menyaring 'kB'.
+            while IFS=':k '  read -r key val _; do
                 case $key in
                     MemTotal)
                         mem_used=$((mem_used + val))
@@ -259,9 +496,14 @@ get_memory() {
             mem_full=$((mem_full / 1024))
         ;;
 
+        # Memori yang digunakan dihitung menggunakan "rumus" berikut:
+        # (wired + active + occupied) * 4 / 1024
         Darwin*)
             mem_full=$(($(sysctl -n hw.memsize) / 1024 / 1024))
 
+            # Parsing pemisahan file 'vmstat' pada ':' dan '.'.
+            # Format file adalah 'kunci: 000.' dan tambahan
+            # split digunakan pada '.' untuk menyaringnya.
             while IFS=:. read -r key val; do
                 case $key in
                     *wired*|*active*|*occupied*)
@@ -269,6 +511,10 @@ get_memory() {
                     ;;
                 esac
 
+            # Menggunakan '<<-EOF' adalah satu-satunya cara untuk mengulang perintah
+            # keluaran tanpa menggunakan pipa ('|').
+            # Ini memastikan bahwa setiap variabel yang didefinisikan dalam loop while
+            # masih dapat diakses dalam skrip.
             done <<-EOF
                 $(vm_stat)
 			EOF
@@ -278,16 +524,38 @@ get_memory() {
 
         OpenBSD*)
             mem_full=$(($(sysctl -n hw.physmem) / 1024 / 1024))
+
+            # Ini adalah pengurai yang sangat sederhana untuk 'vmstat' yang diambil
+            # jumlah memori yang digunakan dengan cara yang malas. 'vmstat' mencetak 3
+            # baris output dengan nilai yang dibutuhkan disimpan di
+            # baris terakhir.
+            #
+            # Loop ini hanya mengambil elemen ke-3 dari setiap baris sampai
+            # EOF tercapai. Setiap baris menimpa nilai
+            # yang sebelumnya jadi kami memiliki apa yang kami inginkan. Ini bukan
+            # lambat karena hanya 3 baris yang diuraikan.
             while read -r _ _ line _; do
                 mem_used=${line%%M}
 
+            # Menggunakan '<<-EOF' adalah satu-satunya cara untuk mengulang perintah
+            # keluaran tanpa menggunakan pipa ('|').
+            # Ini memastikan bahwa setiap variabel yang didefinisikan dalam loop while
+            # masih dapat diakses dalam skrip.
             done <<-EOF
                 $(vmstat)
 			EOF
         ;;
 
-        FreeBSD*)
+        # Memori yang digunakan dihitung menggunakan "rumus" berikut:
+        # mem_full - ((inactive + free + cache) * page_size / 1024)
+        FreeBSD*|DragonFly*)
             mem_full=$(($(sysctl -n hw.physmem) / 1024 / 1024))
+
+            # Gunakan 'set --' untuk menyimpan output dari perintah di
+            # daftar argumen. POSIX sh tidak memiliki array tetapi ini cukup dekat.
+            #
+            # Nonaktifkan peringatan shellcheck untuk pemisahan kata
+            # karena aman dan dimaksudkan ('set -f' menonaktifkan globbing).
             # shellcheck disable=2046
             {
                 set -f
@@ -297,16 +565,20 @@ get_memory() {
                                       vm.stats.vm.v_cache_count)
             }
 
+            # Hitung jumlah memori yang digunakan.
             # $1: hw.pagesize
             # $2: vm.stats.vm.v_inactive_count
             # $3: vm.stats.vm.v_free_count
             # $4: vm.stats.vm.v_cache_count
-            mem_used=$((($2 + $3 + $4) * $1 / 1024 / 1024))
+            mem_used=$((mem_full - (($2 + $3 + $4) * $1 / 1024 / 1024)))
         ;;
 
         NetBSD*)
             mem_full=$(($(sysctl -n hw.physmem64) / 1024 / 1024))
-            while IFS=:k read -r key val _; do
+
+            # NetBSD mengimplementasikan banyak sistem file '/ proc' Linux,
+            # ini menggunakan parser yang sama dengan deteksi memori Linux.
+            while IFS=':k ' read -r key val _; do
                 case $key in
                     MemFree)
                         mem_free=$((val / 1024))
@@ -319,6 +591,13 @@ get_memory() {
         ;;
 
         Haiku)
+            # Baca baris pertama pemisahan 'sysinfo -mem' pada
+            # '(', ' ', dan ')'. Informasi yang dibutuhkan kemudian
+            # disimpan di elemen ke-5 dan ke-7. Menggunakan '_' "mengkonsumsi"
+            # sebuah elemen yang memungkinkan kita untuk melanjutkan ke yang berikutnya.
+            #
+            # Format parsing adalah sebagai berikut:
+            # 3501142016 bytes free      (used/max  792645632 / 4293787648)
             IFS='( )' read -r _ _ _ _ mem_used _ mem_full <<-EOF
                 $(sysinfo -mem)
 			EOF
@@ -326,102 +605,142 @@ get_memory() {
             mem_used=$((mem_used / 1024 / 1024))
             mem_full=$((mem_full / 1024 / 1024))
         ;;
+
+        Minix)
+            # Minix menyertakan sistem file '/ proc' melalui formatnya
+            # berbeda dari Linux. File '/proc/meminfo' hanya
+            # satu baris dengan elemen dan elemen yang dipisahkan spasi
+            # 2 dan 3 berisi nomor memori total dan bebas.
+            read -r _ mem_full mem_free _ < /proc/meminfo
+
+            mem_used=$(((mem_full - mem_free) / 1024))
+            mem_full=$(( mem_full / 1024))
+        ;;
+
+        SunOS)
+            hw_pagesize=$(pagesize)
+
+            while read -r key val; do
+                case $key in
+                    *total) pages_full=$val ;;
+                    *free)  pages_free=$val ;;
+                esac
+            done <<-EOF
+				$(kstat -p unix:0:system_pages:pagestotal \
+                           unix:0:system_pages:pagesfree)
+			EOF
+
+            mem_full=$((pages_full * hw_pagesize / 1024 / 1024))
+            mem_free=$((pages_free * hw_pagesize / 1024 / 1024))
+            mem_used=$((mem_full - mem_free))
+        ;;
     esac
 
     log memory "${mem_used:-?}M / ${mem_full:-?}M" >&6
 }
 
+
 get_palette() {
+    # Cetak 8 warna terminal pertama. Ini menggunakan yang ada
+    # urutan untuk mengubah warna teks dengan urutan yang ditambahkan sebelumnya
+    # untuk membalikkan warna latar depan dan latar belakang.
+    #
+    # Ini memungkinkan kita untuk menyimpan hardcoding set urutan kedua
+    # untuk warna latar belakang.
     palette="  [7m$c1  $c2  $c3  $c4  $c5  $c6  $c7  "
+
+    # Cetak palet dengan baris baru sebelum dan sesudah.
+    # '\033[%sC' memindahkan teks ke kanan,
+    # panjang seni ascii.
     printf '\n[%sC%s[m\n' "${ascii_width-1}" "$palette" >&6
 }
 
+
 get_ascii() {
+    # Ini adalah fungsi sederhana untuk membaca isi dari
+    # file ascii dari 'stdin'. Ini memungkinkan untuk digunakan
+    # dari '<<-EOF' untuk mencegah putusnya lekukan di
+    # kode sumber ini.
+    #
+    # Fungsi ini juga mengatur warna teks sesuai
+    # untuk warna ascii.
     read_ascii() {
+        # 'PF_COL1': Mengatur warna nama info menurut warna ascii.
+        # 'PF_COL3': Mengatur warna judul ke beberapa warna lain. \_(ツ)_/¯
+        PF_COL1=${PF_COL1:-${1:-7}}
+        PF_COL3=${PF_COL3:-$((${1:-7}%8+1))}
+
+        # POSIX sh tidak memiliki 'var+=' jadi 'var=${var}append' digunakan. apa?
+        # menarik adalah bahwa 'var+=' _is_ didukung di dalam '$(())'
+        # (aritmatika) meskipun tidak ada dukungan untuk 'var++/var--'.
+        #
+        # Juga tidak ada $'\n' untuk menambahkan baris baru "literal"(?) ke
+        # rangkaian. Solusi paling sederhana adalah memecahkan garis di dalam
+        # string (meskipun ini memiliki peringatan untuk mematahkan lekukan).
         while IFS= read -r line; do
             ascii="$ascii$line
 "
         done
     }
+
+    # Ini memeriksa seni ascii dalam urutan berikut:
+    # '$1': Argumen yang diberikan ke 'get_ascii()' secara langsung.
+    # '$PF_ASCII': Variabel lingkungan disetel oleh pengguna.
+    # '$distro': Nama distribusi yang terdeteksi.
+    # '$os': Nama sistem operasi/kernel.
+    #
+    # CATATAN: Setiap seni ascii di bawah ini diindentasi menggunakan tab, ini
+    # memungkinkan lekukan berlanjut secara alami meskipun
+    # penggunaan '<<-EOF'.
     case ${1:-${PF_ASCII:-${distro:-$os}}} in
-        ([Aa]lpine*)
+        [Aa]lpine*)
             read_ascii 4 <<-EOF
 				${c4}   /\\ /\\
 				  /${c7}/ ${c4}\\  \\
 				 /${c7}/   ${c4}\\  \\
 				/${c7}//    ${c4}\\  \\
 				${c7}//      ${c4}\\  \\
-				         ${c4}\\
+				         \\
 			EOF
         ;;
 
-        ([Aa]ndroid*)
-            read_ascii 2 <<-EOF
-				${c2}  ;,           ,;
-				${c2}   ';,.-----.,;'
-				${c2}  ,'           ',
-				${c2} /    O     O    \\
-				${c2}|                 |
-				${c2}'-----------------'
-			EOF
-        ;;
-
-        ([Aa]rch*)
+        [Aa]rch*)
             read_ascii 4 <<-EOF
-				${c6}       /\\
-				${c6}      /  \\
-				${c6}     /\\   \\
-				${c4}    /      \\
-				${c4}   /   ,,   \\
-				${c4}  /   |  |  -\\
-				${c4} /_-''    ''-_\\
+				${c6}      /\\
+				     /^^\\
+				    /\\   \\
+				   /${c7}  __  \\
+				  /  (  )  \\
+				 / __|  |__\\\\
+				///        \\\\\\
 			EOF
         ;;
 
-        ([Aa]rco*)
+        [Aa]rco*)
             read_ascii 4 <<-EOF
 				${c4}      /\\
-				${c4}     /  \\
-				${c4}    / /\\ \\
-				${c4}   / /  \\ \\
-				${c4}  / /    \\ \\
-				${c4} / / _____\\ \\
-				${c4}/_/  \`----.\\_\\
+				     /  \\
+				    / /\\ \\
+				   / /  \\ \\
+				  / /    \\ \\
+				 / / _____\\ \\
+				/_/  \`----.\\_\\
 			EOF
         ;;
 
-        ([Aa]rtix*)
+        [Aa]rtix*)
             read_ascii 6 <<-EOF
 				${c4}      /\\
-				${c4}     /  \\
-				${c4}    /\`'.,\\
-				${c4}   /     ',
-				${c4}  /      ,\`\\
-				${c4} /   ,.'\`.  \\
-				${c4}/.,'\`     \`'.\\
+				     /  \\
+				    /\`'.,\\
+				   /     ',
+				  /      ,\`\\
+				 /   ,.'\`.  \\
+				/.,'\`     \`'.\\
 			EOF
         ;;
 
-        ([Bb]edrock*)
-            read_ascii 4 <<-EOF
-				${c7}__
-				${c7}\\ \\___
-				${c7} \\  _ \\
-				${c7}  \\___/
-			EOF
-        ;;
-
-        ([Bb]uildroot*)
-            read_ascii 3 <<-EOF
-				${c3}   ___
-				${c3} / \`   \\
-				${c3}|   :  :|
-				${c3}-. _:__.-
-				${c3}  \` ---- \`
-			EOF
-        ;;
-
-        ([Cc]ent[Oo][Ss]*)
+        [Cc]ent[Oo][Ss]*)
             read_ascii 5 <<-EOF
 				${c2} ____${c3}^${c5}____
 				${c2} |\\  ${c3}|${c5}  /|
@@ -433,66 +752,41 @@ get_ascii() {
 			EOF
         ;;
 
-        ([Dd]ahlia*)
-            read_ascii 1 <<-EOF
-				${c1}      _
-				${c1}  ___/ \\___
-				${c1} |   _-_   |
-				${c1} | /     \ |
-				${c1}/ |       | \\
-				${c1}\\ |       | /
-				${c1} | \ _ _ / |
-				${c1} |___ - ___|
-				${c1}     \\_/
-			EOF
-        ;;
-
-        ([Dd]ebian*)
+        [Dd]ebian*)
             read_ascii 1 <<-EOF
 				${c1}  _____
-				${c1} /  __ \\
-				${c1}|  /    |
-				${c1}|  \\___-
-				${c1}-_
-				${c1}  --_
+				 /  __ \\
+				|  /    |
+				|  \\___-
+				-_
+				  --_
 			EOF
         ;;
 
-        ([Dd]ragon[Ff]ly*)
+        [Dd]ragon[Ff]ly*)
             read_ascii 1 <<-EOF
 				    ,${c1}_${c7},
 				 ('-_${c1}|${c7}_-')
 				  >--${c1}|${c7}--<
 				 (_-'${c1}|${c7}'-_)
 				     ${c1}|
-				     ${c1}|
-				     ${c1}|
+				     |
+				     |
 			EOF
         ;;
 
-        ([Ee]lementary*)
+        [Ee]lementary*)
             read_ascii <<-EOF
 				${c7}  _______
-				${c7} / ____  \\
-				${c7}/  |  /  /\\
-				${c7}|__\\ /  / |
-				${c7}\\   /__/  /
-				 ${c7}\\_______/
+				 / ____  \\
+				/  |  /  /\\
+				|__\\ /  / |
+				\\   /__/  /
+				 \\_______/
 			EOF
         ;;
 
-        ([Ee]ndeavour*)
-            read_ascii 4 <<-EOF
-						      ${c1}/${c4}\\
-				    ${c1}/${c4}/  \\${c6}\\
-				   ${c1}/${c4}/    \\ ${c6}\\
-				 ${c1}/ ${c4}/     _) ${c6})
-				${c1}/_${c4}/___-- ${c6}__-
-				 ${c6}/____--
-			EOF
-        ;;
-
-        ([Ff]edora*)
+        [Ff]edora*)
             read_ascii 4 <<-EOF
 				${c7}      _____
 				     /   __)${c4}\\${c7}
@@ -505,379 +799,297 @@ get_ascii() {
 			EOF
         ;;
 
-        ([Ff]ree[Bb][Ss][Dd]*)
+        [Ff]ree[Bb][Ss][Dd]*)
             read_ascii 1 <<-EOF
-				${c1}/\\,-'''''-,/\\
-				${c1}\\_)       (_/
-				${c1}|           |
-				${c1}|           |
-				 ${c1};         ;
-				  ${c1}'-_____-'
+				${c1} /\\ _____ /\\
+				 \\_)     (_/
+				 /         \\
+				|           |
+				|           |
+				 \         /
+				  --_____--
 			EOF
         ;;
 
-        ([Gg]entoo*)
+        [Gg]entoo*)
             read_ascii 5 <<-EOF
 				${c5} _-----_
-				${c5}(       \\
-				${c5}\\    0   \\
+				(       \\
+				\\    0   \\
 				${c7} \\        )
-				${c7} /      _/
-				${c7}(     _-
-				${c7}\\____-
+				 /      _/
+				(     _-
+				\\____-
 			EOF
         ;;
 
-        ([Gg][Nn][Uu]*)
-            read_ascii 3 <<-EOF
-				${c2}    _-\`\`-,   ,-\`\`-_
-				${c2}  .'  _-_|   |_-_  '.
-				${c2}./    /_._   _._\\    \\.
-				${c2}:    _/_._\`:'_._\\_    :
-				${c2}\\:._/  ,\`   \\   \\ \\_.:/
-				${c2}   ,-';'.@)  \\ @) \\
-				${c2}   ,'/'  ..- .\\,-.|
-				${c2}   /'/' \\(( \\\` ./ )
-				${c2}    '/''  \\_,----'
-				${c2}      '/''   ,;/''
-				${c2}         \`\`;'
-			EOF
-        ;;
-
-        ([Gg]uix[Ss][Dd]*|[Gg]uix*)
+        [Gg]uix[Ss][Dd]*|guix*)
             read_ascii 3 <<-EOF
 				${c3}|.__          __.|
-				${c3}|__ \\        / __|
-				   ${c3}\\ \\      / /
-				    ${c3}\\ \\    / /
-				     ${c3}\\ \\  / /
-				      ${c3}\\ \\/ /
-				       ${c3}\\__/
+				|__ \\        / __|
+				   \\ \\      / /
+				    \\ \\    / /
+				     \\ \\  / /
+				      \\ \\/ /
+				       \\__/
 			EOF
         ;;
 
-        ([Hh]aiku*)
+        [Hh]aiku*)
             read_ascii 3 <<-EOF
 				${c3}       ,^,
-				 ${c3}     /   \\
-				${c3}*--_ ;     ; _--*
-				${c3}\\   '"     "'   /
-				 ${c3}'.           .'
-				${c3}.-'"         "'-.
-				 ${c3}'-.__.   .__.-'
-				       ${c3}|_|
+				      /   \\
+				*--_ ;     ; _--*
+				\\   '"     "'   /
+				 '.           .'
+				.-'"         "'-.
+				 '-.__.   .__.-'
+				       |_|
 			EOF
         ;;
 
-        ([Hh]yperbola*)
+        [Hh]yperbola*)
             read_ascii <<-EOF
 				${c7}    |\`__.\`/
-				   ${c7} \____/
-				   ${c7} .--.
-				  ${c7} /    \\
-				 ${c7} /  ___ \\
-				 ${c7}/ .\`   \`.\\
-				${c7}/.\`      \`.\\
-			EOF
-        ;;
-        
-        ([Ii]nstant[Oo][Ss]*)
-            read_ascii <<-EOF
-				${c0} ,-''-,
-				${c0}: .''. :
-				${c0}: ',,' :
-				${c0} '-____:__
-				${c0}       :  \`.
-				${c0}       \`._.'
+				    \____/
+				    .--.
+				   /    \\
+				  /  ___ \\
+				 / .\`   \`.\\
+				/.\`      \`.\\
 			EOF
         ;;
 
-        ([Ii][Rr][Ii][Xx]*)
-            read_ascii 1 <<-EOF
-				${c1} __
-				${c1} \\ \\   __
-				${c1}  \\ \\ / /
-				${c1}   \\ v /
-				${c1}   / . \\
-				${c1}  /_/ \\ \\
-				${c1}       \\_\\
-			EOF
-        ;;
-
-        ([Kk][Dd][Ee]*[Nn]eon*)
-            read_ascii 6 <<-EOF
-				${c7}   .${c6}__${c7}.${c6}__${c7}.
-				${c6}  /  _${c7}.${c6}_  \\
-				${c6} /  /   \\  \\
-				${c7} . ${c6}|  ${c7}O${c6}  | ${c7}.
-				${c6} \\  \\_${c7}.${c6}_/  /
-				${c6}  \\${c7}.${c6}__${c7}.${c6}__${c7}.${c6}/
-			EOF
-        ;;
-
-        ([Ll]inux*[Ll]ite*|[Ll]ite*)
+        [Ll]inux*[Ll]ite*)
             read_ascii 3 <<-EOF
 				${c3}   /\\
-				${c3}  /  \\
-				${c3} / ${c7}/ ${c3}/
-			${c3}> ${c7}/ ${c3}/
-				${c3}\\ ${c7}\\ ${c3}\\
-				 ${c3}\\_${c7}\\${c3}_\\
+				  /  \\
+				 / ${c7}/ ${c3}/
+				> ${c7}/ ${c3}/
+				\\ ${c7}\\ ${c3}\\
+				 \\_${c7}\\${c3}_\\
 				${c7}    \\
 			EOF
         ;;
 
-        ([Ll]inux*[Mm]int*|[Mm]int)
+        [Ll]inux*[Mm]int*|[Mm]int)
             read_ascii 2 <<-EOF
 				${c2} ___________
-				${c2}|_          \\
-				  ${c2}| ${c7}| _____ ${c2}|
-				  ${c2}| ${c7}| | | | ${c2}|
-				  ${c2}| ${c7}| | | | ${c2}|
-				  ${c2}| ${c7}\\__${c7}___/ ${c2}|
-				  ${c2}\\_________/
+				|_          \\
+				  | ${c7}| _____ ${c2}|
+				  | ${c7}| | | | ${c2}|
+				  | ${c7}| | | | ${c2}|
+				  | ${c7}\\__${c7}___/ ${c2}|
+				  \\_________/
 			EOF
         ;;
 
 
-        ([Ll]inux*)
+        [Ll]inux*)
             read_ascii 4 <<-EOF
 				${c4}    ___
-				   ${c4}(${c7}.. ${c4}|
-				   ${c4}(${c5}<> ${c4}|
-				  ${c4}/ ${c7}__  ${c4}\\
-				 ${c4}( ${c7}/  \\ ${c4}/|
+				   (${c7}.· ${c4}|
+				   (${c5}<> ${c4}|
+				  / ${c7}__  ${c4}\\
+				 ( ${c7}/  \\ ${c4}/|
 				${c5}_${c4}/\\ ${c7}__)${c4}/${c5}_${c4})
 				${c5}\/${c4}-____${c5}\/
 			EOF
         ;;
 
-        ([Mm]ac[Oo][Ss]*|[Dd]arwin*)
+        [Mm]ac[Oo][Ss]*|[Dd]arwin*)
             read_ascii 1 <<-EOF
 				${c1}       .:'
-				${c1}    _ :'_
+				    _ :'_
 				${c2} .'\`_\`-'_\`\`.
-				${c2}:________.-'
+				:________.-'
 				${c3}:_______:
 				${c4} :_______\`-;
 				${c5}  \`._.-._.'
 			EOF
         ;;
 
-        ([Mm]ageia*)
+        [Mm]ageia*)
             read_ascii 2 <<-EOF
 				${c6}   *
-				${c6}    *
-				${c6}   **
+				    *
+				   **
 				${c7} /\\__/\\
-				${c7}/      \\
-				${c7}\\      /
-				${c7} \\____/
+				/      \\
+				\\      /
+				 \\____/
 			EOF
         ;;
 
-        ([Mm]anjaro*)
+        [Mm]anjaro*)
             read_ascii 2 <<-EOF
 				${c2}||||||||| ||||
-				${c2}||||||||| ||||
-				${c2}||||      ||||
-				${c2}|||| |||| ||||
-				${c2}|||| |||| ||||
-				${c2}|||| |||| ||||
-				${c2}|||| |||| ||||
+				||||||||| ||||
+				||||      ||||
+				|||| |||| ||||
+				|||| |||| ||||
+				|||| |||| ||||
+				|||| |||| ||||
 			EOF
         ;;
 
-        ([Mm]inix*)
+        [Mm]inix*)
             read_ascii 4 <<-EOF
 				${c4} ,,        ,,
-				${c4};${c7},${c4} ',    ,' ${c7},${c4};
-				${c4}; ${c7}',${c4} ',,' ${c7},'${c4} ;
-				${c4};   ${c7}',${c4}  ${c7},'${c4}   ;
-				${c4};  ${c7};, '' ,;${c4}  ;
-				${c4};  ${c7};${c4};${c7}',,'${c4};${c7};${c4}  ;
-				${c4}', ${c7};${c4};;  ;;${c7};${c4} ,'
-				 ${c4} '${c7};${c4}'    '${c7};${c4}'
+				;${c7},${c4} ',    ,' ${c7},${c4};
+				; ${c7}',${c4} ',,' ${c7},'${c4} ;
+				;   ${c7}',${c4}  ${c7},'${c4}   ;
+				;  ${c7};, '' ,;${c4}  ;
+				;  ${c7};${c4};${c7}',,'${c4};${c7};${c4}  ;
+				', ${c7};${c4};;  ;;${c7};${c4} ,'
+				  '${c7};${c4}'    '${c7};${c4}'
 			EOF
         ;;
 
-        ([Mm][Xx]*)
+        [Mm][Xx]*)
             read_ascii <<-EOF
 				${c7}    \\\\  /
-				 ${c7}    \\\\/
-				 ${c7}     \\\\
-				 ${c7}  /\\/ \\\\
-				${c7}  /  \\  /\\
-				${c7} /    \\/  \\
-			${c7}/__________\\
+				     \\\\/
+				      \\\\
+				   /\\/ \\\\
+				  /  \\  /\\
+				 /    \\/  \\
+				/__________\\
 			EOF
         ;;
 
-        ([Nn]et[Bb][Ss][Dd]*)
+        [Nn]et[Bb][Ss][Dd]*)
             read_ascii 3 <<-EOF
 				${c7}\\\\${c3}\`-______,----__
 				${c7} \\\\        ${c3}__,---\`_
 				${c7}  \\\\       ${c3}\`.____
 				${c7}   \\\\${c3}-______,----\`-
 				${c7}    \\\\
-				${c7}     \\\\
-				${c7}      \\\\
+				     \\\\
+				      \\\\
 			EOF
         ;;
 
-        ([Nn]ix[Oo][Ss]*)
+        [Nn]ix[Oo][Ss]*)
             read_ascii 4 <<-EOF
 				${c4}  \\\\  \\\\ //
-				${c4} ==\\\\__\\\\/ //
-				${c4}   //   \\\\//
-				${c4}==//     //==
-				${c4} //\\\\___//
-				${c4}// /\\\\  \\\\==
-				${c4}  // \\\\  \\\\
+				 ==\\\\__\\\\/ //
+				   //   \\\\//
+				==//     //==
+				 //\\\\___//
+				// /\\\\  \\\\==
+				  // \\\\  \\\\
 			EOF
         ;;
 
-        ([Oo]pen[Bb][Ss][Dd]*)
+        [Oo]pen[Bb][Ss][Dd]*)
             read_ascii 3 <<-EOF
 				${c3}      _____
-				${c3}    \\-     -/
-				${c3} \\_/         \\
-				${c3} |        ${c7}O O${c3} |
-				${c3} |_  <   )  3 )
-				${c3} / \\         /
-				 ${c3}   /-_____-\\
+				    \\-     -/
+				 \\_/         \\
+				 |        ${c7}O O${c3} |
+				 |_  <   )  3 )
+				 / \\         /
+				    /-_____-\\
 			EOF
         ;;
 
-        ([Oo]pen[Ss][Uu][Ss][Ee]*[Tt]umbleweed*)
-            read_ascii 2 <<-EOF
-				${c2}  _____   ______
-				${c2} / ____\\ / ____ \\
-				${c2}/ /    \`/ /    \\ \\
-				${c2}\\ \\____/ /,____/ /
-				${c2} \\______/ \\_____/
-			EOF
-        ;;
-
-        ([Oo]pen[Ss][Uu][Ss][Ee]*|[Oo]pen*SUSE*|SUSE*|suse*)
+        openSUSE*|open*SUSE*|SUSE*|suse*)
             read_ascii 2 <<-EOF
 				${c2}  _______
-				${c2}__|   __ \\
-				${c2}     / .\\ \\
-				${c2}     \\__/ |
-				${c2}   _______|
-				${c2}   \\_______
-				${c2}__________/
+				__|   __ \\
+				     / .\\ \\
+				     \\__/ |
+				   _______|
+				   \\_______
+				__________/
 			EOF
         ;;
 
-        ([Oo]pen[Ww]rt*)
-            read_ascii 1 <<-EOF
-				${c1} _______
-				${c1}|       |.-----.-----.-----.
-				${c1}|   -   ||  _  |  -__|     |
-				${c1}|_______||   __|_____|__|__|
-				${c1} ________|__|    __
-				${c1}|  |  |  |.----.|  |_
-				${c1}|  |  |  ||   _||   _|
-				${c1}|________||__|  |____|
-			EOF
-        ;;
-
-        ([Pp]arabola*)
+        [Pp]arabola*)
             read_ascii 5 <<-EOF
 				${c5}  __ __ __  _
-				${c5}.\`_//_//_/ / \`.
-				${c5}          /  .\`
-				${c5}         / .\`
-				${c5}        /.\`
-				${c5}       /\`
+				.\`_//_//_/ / \`.
+				          /  .\`
+				         / .\`
+				        /.\`
+				       /\`
 			EOF
         ;;
 
-        ([Pp]op!_[Oo][Ss]*)
+        [Pp]op!_[Oo][Ss]*)
             read_ascii 6 <<-EOF
 				${c6}______
-				${c6}\\   _ \\        __
-				 ${c6}\\ \\ \\ \\      / /
-				  ${c6}\\ \\_\\ \\    / /
-				   ${c6}\\  ___\\  /_/
-				   ${c6} \\ \\    _
-				  ${c6} __\\_\\__(_)_
-				  ${c6}(___________)
+				\\   _ \\        __
+				 \\ \\ \\ \\      / /
+				  \\ \\_\\ \\    / /
+				   \\  ___\\  /_/
+				    \\ \\    _
+				   __\\_\\__(_)_
+				  (___________)
 			EOF
         ;;
 
-        ([Pp]ure[Oo][Ss]*)
+        [Pp]ure[Oo][Ss]*)
             read_ascii <<-EOF
 				${c7} _____________
-				${c7}|  _________  |
-				${c7}| |         | |
-				${c7}| |         | |
-				${c7}| |_________| |
-				${c7}|_____________|
+				|  _________  |
+				| |         | |
+				| |         | |
+				| |_________| |
+				|_____________|
 			EOF
         ;;
 
-        ([Rr]aspbian*)
-            read_ascii 1 <<-EOF
-				${c2}  __  __
-				${c2} (_\\)(/_)
-				${c1} (_(__)_)
-				${c1}(_(_)(_)_)
-				${c1} (_(__)_)
-				${c1}   (__)
-			EOF
-        ;;
-
-        ([Ss]lackware*)
+        [Ss]lackware*)
             read_ascii 4 <<-EOF
 				${c4}   ________
-				${c4}  /  ______|
-				${c4}  | |______
-				${c4}  \\______  \\
-				${c4}   ______| |
-				${c4}| |________/
-				${c4}|____________
+				  /  ______|
+				  | |______
+				  \\______  \\
+				   ______| |
+				| |________/
+				|____________
 			EOF
         ;;
 
-        ([Ss]un[Oo][Ss]|[Ss]olaris*)
+        [Ss]un[Oo][Ss])
             read_ascii 3 <<-EOF
 				${c3}       .   .;   .
-				${c3}   .   :;  ::  ;:   .
-				${c3}   .;. ..      .. .;.
-				${c3}..  ..             ..  ..
-				${c3} .;,                 ,;.
+				   .   :;  ::  ;:   .
+				   .;. ..      .. .;.
+				..  ..             ..  ..
+				 .;,                 ,;.
 			EOF
         ;;
 
-        ([Uu]buntu*)
+        [Uu]buntu*)
             read_ascii 3 <<-EOF
 				${c3}         _
-				${c3}     ---(_)
-				${c3} _/  ---  \\
-				${c3}(_) |   |
-				 ${c3} \\  --- _/
-				    ${c3} ---(_)
+				     ---(_)
+				 _/  ---  \\
+				(_) |   |
+				  \\  --- _/
+				     ---(_)
 			EOF
         ;;
 
-        ([Vv]oid*)
+        [Vv]oid*)
             read_ascii 2 <<-EOF
 				${c2}    _______
-				${c2} _ \\______ -
-				${c2}| \\  ___  \\ |
-				${c2}| | /   \ | |
-				${c2}| | \___/ | |
-				${c2}| \\______ \\_|
-				${c2} -_______\\
+				 _ \\______ -
+				| \\  ___  \\ |
+				| | /   \ | |
+				| | \___/ | |
+				| \\______ \\_|
+				 -_______\\
 			EOF
         ;;
 
-
-
         *)
+            # Pada seni distribusi ascii yang tidak cocok, fungsi ini memanggil
+            # sendiri lagi, kali ini untuk mencari OS yang lebih umum terkait
+            # ascii art (KISS Linux -> Linux).
             [ "$1" ] || {
                 get_ascii "$os"
                 return
@@ -889,23 +1101,63 @@ get_ascii() {
         ;;
     esac
 
+    # Simpan "width" (garis terpanjang) dan "height" (jumlah baris)
+    # seni ascii untuk penentuan posisi. Skrip ini dicetak ke layar
+    # *hampir* seperti yang dilakukan TUI. Ini menggunakan urutan pelarian untuk memungkinkan dinamis
+    # pencetakan informasi melalui konfigurasi pengguna.
+    #
+    # Ulangi setiap baris seni ascii untuk mengambil yang di atas
+    # informasi. 'sed' digunakan untuk menghapus kode warna ' [3Xm' dari
+    # seni ascii sehingga tidak mempengaruhi variabel lebar.
     while read -r line; do
-        : $((ascii_height+=1))
-        ascii_width=$((${#line} > ascii_width ? ${#line} : ascii_width))
+        ascii_height=$((${ascii_height:-0} + 1))
+
+        # Ini adalah operasi ternary tetapi mereka tidak didukung di
+        # cangkang Minix.
+        [ "${#line}" -gt "${ascii_width:-0}" ] &&
+            ascii_width=${#line}
+
+    # Menggunakan '<<-EOF' adalah satu-satunya cara untuk mengulang perintah
+    # keluaran tanpa menggunakan pipa ('|').
+    # Ini memastikan bahwa setiap variabel yang didefinisikan dalam loop while
+    # masih dapat diakses dalam skrip.
     done <<-EOF
 		$(printf %s "$ascii" | sed 's/\[3.m//g')
 	EOF
 
-    : $((ascii_width+=4))
+    # Tambahkan jarak antara seni ascii dan informasi.
+    ascii_width=$((ascii_width + 4))
 
-    printf '[?7l[?25l[1m%s[m[%sA' "$ascii" "$ascii_height" >&6
+    # Minix dan DragonFly tidak mendukung ini!
+    # '[?7l': Nonaktifkan pembungkusan baris.
+    # '[?25l': Sembunyikan kursor.
+    [ "$os" != Minix ] && [ "$os" != DragonFly ] &&
+        printf '[?7l[?25l' >&6
+
+    # Cetak seni ascii dan posisikan kursor kembali ke tempat kita
+    # dimulai sebelum mencetaknya.
+    # '[1m': Cetak ascii dalam huruf tebal.
+    # '[m': Hapus tebal.
+    # '[%sA': Pindahkan kursor ke atas '$ascii_height' jumlah baris.
+    printf '[1m%s[m[%sA' "$ascii" "$ascii_height" >&6
 }
 
 main() {
+    # Tinggalkan terminal bagaimana kami menemukannya saat keluar atau Ctrl+C.
+    # '[?7h': Mengaktifkan pembungkusan baris.
+    # '[?25h': Membuka sembunyikan kursor.
     trap 'printf [?7h[?25h >&6' EXIT
+
+    # Sembunyikan 'stderr' kecuali argumen pertama adalah '-v'. Ini menghemat
+    # mencemari skrip dengan '2>/dev/null'.
     [ "$1" = -v ] || exec 2>/dev/null
+
+    # Sembunyikan 'stdout' dan cetak secara selektif menggunakan '>&6'.
+    # Ini memberikan kontrol penuh atas apa yang ditampilkan di layar.
     exec 6>&1 >/dev/null
 
+    # Daftar warna umum.
+    # Nonaktifkan peringatan tentang variabel yang tidak digunakan.
     # shellcheck disable=2034
     {
         c1='[31m'; c2='[32m'
@@ -913,30 +1165,61 @@ main() {
         c5='[35m'; c6='[36m'
         c7='[37m'; c8='[38m'
     }
+
+    # Simpan output 'uname' untuk menghindari memanggilnya berkali-kali
+    # di seluruh skrip. 'read <<EOF' adalah cara membaca yang paling sederhana
+    # perintah ke dalam daftar variabel.
     read -r os kernel arch <<-EOF
 		$(uname -srm)
 	EOF
 
+    # Selalu jalankan 'get_os' untuk tujuan mendeteksi ascii
+    # seni untuk ditampilkan.
     get_os
 
+    # Izinkan pengguna untuk menentukan urutan dan penyertaan informasi
+    # berfungsi melalui variabel lingkungan 'PF_INFO'.
     # shellcheck disable=2086
     {
+        # Nonaktifkan globbing dan atur parameter posisi ke
+        # isi 'PF_INFO'.
         set -f
         set +f ${PF_INFO-ascii title os host kernel uptime pkgs memory}
-        for info; do
-            command -v "get_$info" >/dev/null &&
-                info_length=$((${#info} > info_length ? ${#info} : info_length))
-        done
-        : $((info_length+=1))
 
+        # Ulangi fungsi info untuk menentukan panjang
+        # "nama info" untuk penyelarasan keluaran. Nama opsi dan subtitle
+        # cocokkan 1:1 jadi ini untungnya sederhana.
+        for info; do
+            command -v "get_$info" >/dev/null || continue
+
+            # Ini adalah operasi ternary tetapi mereka tidak didukung di
+            # cangkang Minix.
+            [ "${#info}" -gt "${info_length:-0}" ] &&
+                info_length=${#info}
+        done
+
+        # Tambahkan ruang tambahan panjang untuk bertindak sebagai celah.
+        info_length=$((info_length + 1))
+
+        # Ulangi daftar di atas dan jalankan fungsi "get_" yang ada.
         for info; do "get_$info"; done
     }
 
-    cursor_pos=$((info_height > ascii_height ? 0 : ascii_height - info_height))
-    
-    while [ "${i:-0}" -le "$cursor_pos" ]; do
+    # Posisikan kursor di bawah seni ascii dan garis informasi
+    # sesuai dengan ketinggian keduanya. Jika informasi melebihi ascii
+    # tinggi seni, jangan sentuh kursor (0/tidak disetel), jika tidak, pindahkan ke bawah
+    # N baris.
+    #
+    # Ini adalah operasi ternary tetapi tidak didukung di shell Minix.
+    [ "$info_height" -lt "$ascii_height" ] &&
+        cursor_pos=$((ascii_height - info_height))
+
+    # Cetak '$cursor_pos' jumlah baris baru untuk memposisikan dengan benar
+    # kursor. Ini dulunya adalah 'printf $(seq X X)' namun 'seq' hanya
+    # biasanya tersedia (secara default) pada sistem berbasis GNU!
+    while [ "${i:=0}" -le "${cursor_pos:-0}" ]; do
         printf '\n'
-        : $((i+=1))
+        i=$((i + 1))
     done >&6
 }
 
